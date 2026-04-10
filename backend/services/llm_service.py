@@ -255,17 +255,128 @@ async def _stream_volce(
     tools: Optional[List[Dict]],
 ) -> AsyncGenerator[Dict, None]:
     """
-    Volcano Engine Ark — uses the OpenAI-compatible chat/completions endpoint.
-    Base URL: https://ark.cn-beijing.volces.com/api/v3
-    Model should be a Volcano Ark endpoint ID, e.g. ep-20260303110342-xxxxx
+    Volcano Engine Ark /api/v3/responses (Responses API).
+    Input format: {"model", "stream", "input": [{role, content: [{type, text}]}]}
+    SSE events carry event type in both the 'event:' line and data['type'].
+    Text delta is in data['delta'] as a plain string.
     """
+    import httpx
+
     api_key = await _get_api_key("volce")
     if not api_key:
         yield {"type": "error", "content": "火山引擎 API Key 未配置，请在「设置」页面填写"}
         return
-    async for e in _stream_openai_compatible(
-        model, system_prompt, messages, tools,
-        api_key=api_key,
-        base_url="https://ark.cn-beijing.volces.com/api/v3",
-    ):
-        yield e
+
+    # Build input array in Ark Responses API format
+    volce_input: List[Dict] = []
+
+    if system_prompt:
+        volce_input.append({
+            "role": "system",
+            "content": [{"type": "input_text", "text": system_prompt}],
+        })
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        if isinstance(content, str):
+            if content:
+                volce_input.append({
+                    "role": role,
+                    "content": [{"type": "input_text", "text": content}],
+                })
+        elif isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if not isinstance(block, dict):
+                    text_parts.append(str(block))
+                    continue
+                btype = block.get("type", "")
+                if btype in ("text", "input_text"):
+                    text_parts.append(block.get("text", ""))
+                elif btype == "tool_result":
+                    text_parts.append(f"[工具结果] {block.get('content', '')}")
+                elif btype == "tool_use":
+                    text_parts.append(
+                        f"[调用工具 {block.get('name', '')}] 参数: "
+                        + json.dumps(block.get("input", {}), ensure_ascii=False)
+                    )
+            combined = "\n".join(filter(None, text_parts))
+            if combined:
+                volce_input.append({
+                    "role": role,
+                    "content": [{"type": "input_text", "text": combined}],
+                })
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "stream": True,
+        "input": volce_input,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            async with client.stream(
+                "POST",
+                "https://ark.cn-beijing.volces.com/api/v3/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    body = await response.aread()
+                    yield {
+                        "type": "error",
+                        "content": f"HTTP {response.status_code}: {body.decode('utf-8', errors='replace')}",
+                    }
+                    return
+
+                # SSE parsing: track current event type across lines
+                current_event = ""
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        current_event = ""
+                        continue
+
+                    if line.startswith("event:"):
+                        current_event = line[6:].strip()
+                        continue
+
+                    if not line.startswith("data:"):
+                        continue
+
+                    data_str = line[5:].strip()
+                    if data_str == "[DONE]":
+                        yield {"type": "done", "stop_reason": "end_turn"}
+                        return
+
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Event type: prefer SSE 'event:' header, fall back to data fields
+                    etype = current_event or data.get("type", "") or data.get("object", "")
+
+                    if "output_text.delta" in etype:
+                        # delta is a plain string in the Responses API
+                        delta = data.get("delta", "")
+                        if isinstance(delta, str) and delta:
+                            yield {"type": "text_delta", "content": delta}
+                        elif isinstance(delta, dict):
+                            text = delta.get("text", "") or delta.get("output_text", "")
+                            if text:
+                                yield {"type": "text_delta", "content": text}
+
+                    elif "completed" in etype or "done" in etype or "message_stop" in etype:
+                        yield {"type": "done", "stop_reason": "end_turn"}
+                        return
+
+                yield {"type": "done", "stop_reason": "end_turn"}
+
+    except Exception as e:
+        yield {"type": "error", "content": str(e)}
