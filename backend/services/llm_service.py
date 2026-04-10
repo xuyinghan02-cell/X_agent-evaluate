@@ -334,47 +334,53 @@ async def _stream_volce(
                     }
                     return
 
-                # SSE parsing: track current event type across lines
+                # SSE parsing using raw bytes to avoid UTF-8 decode errors.
+                # httpx.aiter_lines() decodes internally and crashes on non-UTF-8
+                # bytes (e.g. GBK content from Ark). Use aiter_bytes() + manual split.
                 current_event = ""
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        current_event = ""
-                        continue
+                buf = b""
+                async for chunk in response.aiter_bytes():
+                    buf += chunk
+                    while b"\n" in buf:
+                        raw_line, buf = buf.split(b"\n", 1)
+                        line = raw_line.decode("utf-8", errors="replace").strip()
 
-                    if line.startswith("event:"):
-                        current_event = line[6:].strip()
-                        continue
+                        if not line:
+                            current_event = ""
+                            continue
 
-                    if not line.startswith("data:"):
-                        continue
+                        if line.startswith("event:"):
+                            current_event = line[6:].strip()
+                            continue
 
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        yield {"type": "done", "stop_reason": "end_turn"}
-                        return
+                        if not line.startswith("data:"):
+                            continue
 
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            yield {"type": "done", "stop_reason": "end_turn"}
+                            return
 
-                    # Event type: prefer SSE 'event:' header, fall back to data fields
-                    etype = current_event or data.get("type", "") or data.get("object", "")
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
 
-                    if "output_text.delta" in etype:
-                        # delta is a plain string in the Responses API
-                        delta = data.get("delta", "")
-                        if isinstance(delta, str) and delta:
-                            yield {"type": "text_delta", "content": delta}
-                        elif isinstance(delta, dict):
-                            text = delta.get("text", "") or delta.get("output_text", "")
-                            if text:
-                                yield {"type": "text_delta", "content": text}
+                        # Event type: prefer SSE 'event:' header, fall back to data fields
+                        etype = current_event or data.get("type", "") or data.get("object", "")
 
-                    elif "completed" in etype or "done" in etype or "message_stop" in etype:
-                        yield {"type": "done", "stop_reason": "end_turn"}
-                        return
+                        if "output_text.delta" in etype:
+                            delta = data.get("delta", "")
+                            if isinstance(delta, str) and delta:
+                                yield {"type": "text_delta", "content": delta}
+                            elif isinstance(delta, dict):
+                                text = delta.get("text", "") or delta.get("output_text", "")
+                                if text:
+                                    yield {"type": "text_delta", "content": text}
+
+                        elif "completed" in etype or "message_stop" in etype:
+                            yield {"type": "done", "stop_reason": "end_turn"}
+                            return
 
                 yield {"type": "done", "stop_reason": "end_turn"}
 

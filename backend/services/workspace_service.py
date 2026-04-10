@@ -97,7 +97,7 @@ class WorkspaceService:
             raise FileNotFoundError(f"File not found: {relative_path}")
         if not file_path.is_file():
             raise IsADirectoryError(f"Path is a directory: {relative_path}")
-        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+        async with aiofiles.open(file_path, "r", encoding="utf-8", errors="replace") as f:
             return await f.read()
 
     async def write_file(self, relative_path: str, content: str):
@@ -181,7 +181,7 @@ class WorkspaceService:
                     if skill_file.name not in selected_skills and skill_file.stem not in selected_skills:
                         continue
                 try:
-                    async with aiofiles.open(skill_file, "r", encoding="utf-8") as f:
+                    async with aiofiles.open(skill_file, "r", encoding="utf-8", errors="replace") as f:
                         content = await f.read()
                     skill_contents.append(f"### {skill_file.stem}\n{content}")
                 except Exception:
