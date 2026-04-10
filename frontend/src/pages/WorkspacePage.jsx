@@ -106,7 +106,6 @@ export default function WorkspacePage() {
     try {
       await api.post(`/agents/${agentId}/workspace/upload`, form, {
         params: { sub_dir: uploadSubDir },
-        headers: { 'Content-Type': 'multipart/form-data' },
       })
       loadTree()
       flash(`已上传到 ${uploadSubDir}/`)
@@ -193,6 +192,9 @@ export default function WorkspacePage() {
             选择文件上传
           </button>
           <input ref={uploadRef} type="file" className="hidden" onChange={handleUpload} />
+          <p className="text-[10px] text-gray-400 leading-relaxed">
+            支持 .md .txt .json .yaml .py .js 等文本文件及图片、PDF。最大 20 MB。
+          </p>
         </div>
       </aside>
 

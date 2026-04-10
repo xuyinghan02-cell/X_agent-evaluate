@@ -12,7 +12,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # Keys visible to all authenticated users
 PUBLIC_KEYS = {"active_provider", "active_model", "history_count", "max_tool_rounds"}
 # Keys that are API keys (masked for non-admin, writable by admin only)
-API_KEY_KEYS = {"anthropic_api_key", "openai_api_key", "minimax_api_key", "deepseek_api_key"}
+API_KEY_KEYS = {"anthropic_api_key", "openai_api_key", "minimax_api_key", "deepseek_api_key", "volce_api_key"}
 
 ALL_KEYS = PUBLIC_KEYS | API_KEY_KEYS
 

@@ -1,16 +1,42 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Send, Plus, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, Brain } from 'lucide-react'
+import {
+  Send, Plus, Trash2, ChevronDown, ChevronRight, Loader2,
+  CheckCircle, XCircle, Brain, Settings2, X,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import api from '../utils/api'
 import { useAuthStore } from '../store/auth'
 
+const PROVIDERS = {
+  anthropic: {
+    label: 'Anthropic',
+    models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+  },
+  openai: {
+    label: 'OpenAI',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+  },
+  minimax: {
+    label: 'MiniMax',
+    models: ['abab6.5s-chat', 'MiniMax-Text-01'],
+  },
+  volce: {
+    label: '火山引擎',
+    models: [],
+    freeText: true,
+  },
+}
+
 export default function ChatPage() {
   const token = useAuthStore((s) => s.token)
 
   const [agent, setAgent] = useState(null)
-  const [activeModel, setActiveModel] = useState('')
   const [conversations, setConversations] = useState([])
   const [activeConvId, setActiveConvId] = useState(null)
   const [messages, setMessages] = useState([])
@@ -20,14 +46,28 @@ export default function ChatPage() {
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
 
-  // Load single agent and active model from settings
+  // Model / Skills selector state
+  const [showModelPanel, setShowModelPanel] = useState(false)
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [availableSkills, setAvailableSkills] = useState([])
+  const [selectedSkills, setSelectedSkills] = useState([])  // [] = all, specific list = filter
+
+  // Load single agent, default settings, and skills
   useEffect(() => {
     api.get('/agent').then((r) => {
       setAgent(r.data)
       loadConversations(r.data.id)
+      // Load skills for this agent
+      api.get(`/agents/${r.data.id}/workspace/skills`)
+        .then((sr) => setAvailableSkills(sr.data.skills || []))
+        .catch(() => {})
     }).catch(() => {})
+
     api.get('/settings').then((r) => {
-      setActiveModel(r.data.active_model || '')
+      const d = r.data
+      if (d.active_provider) setSelectedProvider(d.active_provider)
+      if (d.active_model) setSelectedModel(d.active_model)
     }).catch(() => {})
   }, [])
 
@@ -37,7 +77,6 @@ export default function ChatPage() {
     api.get(`/agents/${id}/conversations`).then((r) => setConversations(r.data)).catch(() => {})
   }
 
-  // Load messages when conversation changes
   useEffect(() => {
     if (!activeConvId || !agent) {
       setMessages([])
@@ -72,12 +111,25 @@ export default function ChatPage() {
     loadConversations()
   }
 
+  const handleProviderChange = (p) => {
+    setSelectedProvider(p)
+    if (PROVIDERS[p]?.models?.length > 0) setSelectedModel(PROVIDERS[p].models[0])
+    else setSelectedModel('')
+  }
+
+  const toggleSkill = (skill) => {
+    setSelectedSkills((prev) =>
+      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
+    )
+  }
+
   const sendMessage = useCallback(() => {
     const text = input.trim()
     if (!text || sending || !agent) return
 
     setInput('')
     setSending(true)
+    setShowModelPanel(false)
 
     const userMsg = { id: Date.now(), role: 'user', content: text, status: 'done' }
     setMessages((prev) => [...prev, userMsg])
@@ -101,6 +153,9 @@ export default function ChatPage() {
         token,
         message: text,
         conversation_id: activeConvId,
+        provider: selectedProvider || undefined,
+        model: selectedModel || undefined,
+        selected_skills: selectedSkills.length > 0 ? selectedSkills : undefined,
       }))
     }
 
@@ -152,7 +207,7 @@ export default function ChatPage() {
 
     ws.onerror = () => { setSending(false) }
     ws.onclose = () => { setSending(false) }
-  }, [input, sending, activeConvId, agent, token])
+  }, [input, sending, activeConvId, agent, token, selectedProvider, selectedModel, selectedSkills])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -161,7 +216,8 @@ export default function ChatPage() {
     }
   }
 
-  const displayModel = activeModel || agent?.primary_model || ''
+  const displayModel = selectedModel || agent?.primary_model || ''
+  const displayProvider = selectedProvider ? (PROVIDERS[selectedProvider]?.label || selectedProvider) : ''
 
   return (
     <div className="flex-1 flex overflow-hidden">
@@ -194,16 +250,123 @@ export default function ChatPage() {
       </aside>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="h-14 bg-white border-b border-gray-200 flex items-center px-5">
-          <div className="flex-1">
+        <div className="h-14 bg-white border-b border-gray-200 flex items-center px-5 gap-3">
+          <div className="flex-1 min-w-0">
             <span className="font-semibold text-gray-900">{agent?.name || '评估智能体'}</span>
             {displayModel && (
-              <span className="ml-2 text-xs text-gray-400">{displayModel}</span>
+              <span className="ml-2 text-xs text-gray-400 truncate">
+                {displayProvider && `${displayProvider} · `}{displayModel}
+              </span>
             )}
           </div>
+          <button
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              showModelPanel
+                ? 'bg-primary-50 text-primary-700 border-primary-300'
+                : 'text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
+            }`}
+            onClick={() => setShowModelPanel((v) => !v)}
+            title="模型与技能"
+          >
+            <Settings2 size={13} />
+            模型/技能
+          </button>
         </div>
+
+        {/* Model & Skills Panel */}
+        {showModelPanel && (
+          <div className="bg-gray-50 border-b border-gray-200 px-5 py-4 space-y-4">
+            {/* Provider */}
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-2">提供商</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(PROVIDERS).map(([key, { label }]) => (
+                  <button
+                    key={key}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                      selectedProvider === key
+                        ? 'bg-primary-600 text-white border-primary-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'
+                    }`}
+                    onClick={() => handleProviderChange(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Model */}
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-2">模型</div>
+              {selectedProvider && PROVIDERS[selectedProvider]?.freeText ? (
+                <input
+                  className="input text-xs py-1.5 max-w-xs"
+                  placeholder="输入模型 ID，例如 ep-20260303110342-xxxxx"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                />
+              ) : (
+                <select
+                  className="input text-xs py-1.5 max-w-xs"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                >
+                  {(selectedProvider ? PROVIDERS[selectedProvider]?.models : []).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Skills */}
+            {availableSkills.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-gray-500 mb-2">
+                  技能
+                  <span className="ml-1 text-gray-400 font-normal">
+                    {selectedSkills.length === 0 ? '(全部启用)' : `(已选 ${selectedSkills.length})`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {availableSkills.map((skill) => {
+                    const active = selectedSkills.length === 0 || selectedSkills.includes(skill)
+                    return (
+                      <button
+                        key={skill}
+                        className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                          active
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : 'bg-white text-gray-400 border-gray-200 line-through'
+                        }`}
+                        onClick={() => {
+                          if (selectedSkills.length === 0) {
+                            // All active → deselect this one (exclude it)
+                            setSelectedSkills(availableSkills.filter((s) => s !== skill))
+                          } else {
+                            toggleSkill(skill)
+                          }
+                        }}
+                      >
+                        {skill}
+                      </button>
+                    )
+                  })}
+                  {selectedSkills.length > 0 && (
+                    <button
+                      className="px-2.5 py-1 rounded-lg text-xs border border-dashed border-gray-300 text-gray-400 hover:text-gray-600"
+                      onClick={() => setSelectedSkills([])}
+                    >
+                      全部启用
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -211,6 +374,9 @@ export default function ChatPage() {
             <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
               <div className="text-4xl mb-3">👋</div>
               <p className="text-sm">开始和 <strong className="text-gray-600">{agent?.name || '评估智能体'}</strong> 对话吧</p>
+              {displayModel && (
+                <p className="text-xs mt-1 text-gray-300">{displayProvider} · {displayModel}</p>
+              )}
             </div>
           )}
           {messages.map((msg) => (

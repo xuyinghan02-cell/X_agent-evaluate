@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     deepseek_api_key: str = ""
     minimax_api_key: str = ""
+    volce_api_key: str = ""
 
     max_tool_call_rounds: int = 50
     default_history_count: int = 20

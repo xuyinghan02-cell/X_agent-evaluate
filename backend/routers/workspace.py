@@ -56,7 +56,13 @@ async def read_file(
         content = await ws.read_file(path)
         return PlainTextResponse(content)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    except IsADirectoryError:
+        raise HTTPException(status_code=400, detail=f"Path is a directory: {path}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Read error: {str(e)}")
 
 
 @router.put("/files")
@@ -83,6 +89,9 @@ async def delete_file(
     return {"ok": True}
 
 
+MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
+
+
 @router.post("/upload")
 async def upload_file(
     agent_id: int,
@@ -91,8 +100,10 @@ async def upload_file(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    ws = await get_workspace(agent_id, db, current_user)
     data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 20 MB.")
+    ws = await get_workspace(agent_id, db, current_user)
     saved_path = await ws.save_upload(sub_dir, file.filename, data)
     return {"path": saved_path}
 

@@ -20,6 +20,11 @@ const PROVIDERS = {
     label: 'MiniMax',
     models: ['abab6.5s-chat', 'MiniMax-Text-01'],
   },
+  volce: {
+    label: '火山引擎',
+    models: [],  // endpoint IDs are user-defined; use free-text input
+    freeText: true,
+  },
 }
 
 export default function SettingsPage() {
@@ -33,6 +38,7 @@ export default function SettingsPage() {
     openai_api_key: '',
     deepseek_api_key: '',
     minimax_api_key: '',
+    volce_api_key: '',
   })
   const [showKeys, setShowKeys] = useState({})
   const [saving, setSaving] = useState(false)
@@ -50,15 +56,17 @@ export default function SettingsPage() {
           openai_api_key: d.openai_api_key || '',
           deepseek_api_key: d.deepseek_api_key || '',
           minimax_api_key: d.minimax_api_key || '',
+          volce_api_key: d.volce_api_key || '',
         })
       }
     }).catch(() => {})
   }, [])
 
-  // When provider changes, default to first model
+  // When provider changes, default to first model (if any)
   const handleProviderChange = (p) => {
     setProvider(p)
-    setModel(PROVIDERS[p].models[0])
+    if (PROVIDERS[p].models.length > 0) setModel(PROVIDERS[p].models[0])
+    else setModel('')
   }
 
   const handleSave = async () => {
@@ -96,7 +104,7 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">提供商</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {Object.entries(PROVIDERS).map(([key, { label }]) => (
                     <button
                       key={key}
@@ -114,15 +122,24 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">模型</label>
-                <select
-                  className="input"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                >
-                  {PROVIDERS[provider].models.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+                {PROVIDERS[provider]?.freeText ? (
+                  <input
+                    className="input"
+                    placeholder="输入模型 ID，例如 ep-20260303110342-xxxxx"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  />
+                ) : (
+                  <select
+                    className="input"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  >
+                    {PROVIDERS[provider].models.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
           </div>
@@ -138,6 +155,7 @@ export default function SettingsPage() {
                   { key: 'openai_api_key', label: 'OpenAI API Key', placeholder: 'sk-...' },
                   { key: 'deepseek_api_key', label: 'DeepSeek API Key', placeholder: 'sk-...' },
                   { key: 'minimax_api_key', label: 'MiniMax API Key', placeholder: 'eyJ...' },
+                  { key: 'volce_api_key', label: '火山引擎 API Key', placeholder: '' },
                 ].map(({ key, label, placeholder }) => (
                   <div key={key}>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>

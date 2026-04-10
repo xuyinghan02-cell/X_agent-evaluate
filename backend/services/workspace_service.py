@@ -1,4 +1,3 @@
-import os
 import shutil
 import aiofiles
 from pathlib import Path
@@ -16,8 +15,6 @@ class WorkspaceService:
         dirs = [base, base / "skills", base / "uploads", base / "outputs"]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
-
-        # Create default identity files
         WorkspaceService._write_default_files(base)
         return str(base)
 
@@ -28,22 +25,25 @@ class WorkspaceService:
             agent_md.write_text(
                 "# Agent Instructions\n\n"
                 "## Session Startup\n"
-                "1. Load memory.md and review accumulated knowledge\n"
+                "1. Load memory.md and focus.md, review accumulated knowledge\n"
                 "2. Note the current date/time from runtime context\n\n"
                 "## Memory Rules\n"
-                "- Write important facts, user preferences, and task outcomes to memory.md\n"
-                "- Do NOT write temporary session data or one-time instructions\n\n"
+                "- **memory.md** (长期记忆): Write important facts, user preferences, and task outcomes that should persist across sessions\n"
+                "- **focus.md** (短期记忆): Write current session goals, in-progress context, and temporary notes. Clear when a task is complete.\n"
+                "- Do NOT write trivial or one-time data to memory.md\n\n"
                 "## System Context\n"
                 "Your system prompt is assembled from:\n"
                 "- <agent>: This file — meta instructions\n"
                 "- <soul>: Your personality and behavior guidelines\n"
-                "- <memory>: Your accumulated long-term knowledge\n"
+                "- <memory>: Long-term accumulated knowledge\n"
+                "- <focus>: Short-term session memory (focus.md)\n"
                 "- <skills>: Enabled skill modules for this session\n"
                 "- <runtime>: Current time, workspace path, and environment info\n\n"
                 "## Work Guidelines\n"
                 "- Prefer available tools over guessing\n"
                 "- When uncertain, ask for clarification before acting\n"
-                "- Always confirm destructive actions with the user\n"
+                "- Always confirm destructive actions with the user\n",
+                encoding="utf-8",
             )
 
         soul_md = base / "soul.md"
@@ -62,40 +62,66 @@ class WorkspaceService:
                 "## Core Values\n"
                 "- Accuracy over speed\n"
                 "- Transparency in reasoning\n"
-                "- Respect for user autonomy\n"
+                "- Respect for user autonomy\n",
+                encoding="utf-8",
             )
 
         memory_md = base / "memory.md"
         if not memory_md.exists():
-            memory_md.write_text("# Memory\n\n_No memories recorded yet._\n")
+            memory_md.write_text(
+                "# 长期记忆 (Memory)\n\n_No memories recorded yet._\n",
+                encoding="utf-8",
+            )
+
+        focus_md = base / "focus.md"
+        if not focus_md.exists():
+            focus_md.write_text(
+                "# 短期记忆 (Focus)\n\n_Current session focus. Clear after task completion._\n",
+                encoding="utf-8",
+            )
+
+    def _safe_path(self, relative_path: str) -> Path:
+        """Normalize path separators and resolve safely within workspace."""
+        normalized = relative_path.replace("\\", "/").lstrip("/")
+        resolved = (self.base / normalized).resolve()
+        # Security: ensure resolved path is inside workspace
+        if not str(resolved).startswith(str(self.base.resolve())):
+            raise ValueError(f"Path escapes workspace: {relative_path}")
+        return resolved
 
     async def read_file(self, relative_path: str) -> str:
-        file_path = self.base / relative_path
+        file_path = self._safe_path(relative_path)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {relative_path}")
+        if not file_path.is_file():
+            raise IsADirectoryError(f"Path is a directory: {relative_path}")
         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
             return await f.read()
 
     async def write_file(self, relative_path: str, content: str):
-        file_path = self.base / relative_path
+        file_path = self._safe_path(relative_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
             await f.write(content)
 
     async def delete_file(self, relative_path: str):
-        file_path = self.base / relative_path
+        file_path = self._safe_path(relative_path)
         if file_path.is_dir():
             shutil.rmtree(file_path)
         else:
             file_path.unlink(missing_ok=True)
 
     def list_files(self, sub_dir: str = "") -> List[dict]:
-        target = self.base / sub_dir if sub_dir else self.base
+        if sub_dir:
+            target = self._safe_path(sub_dir)
+        else:
+            target = self.base
         if not target.exists():
             return []
         result = []
         for entry in sorted(target.iterdir()):
-            rel = str(entry.relative_to(self.base))
+            # Always use forward slashes for cross-platform compatibility
+            rel = entry.relative_to(self.base).as_posix()
             result.append({
                 "name": entry.name,
                 "path": rel,
@@ -105,52 +131,59 @@ class WorkspaceService:
         return result
 
     async def save_upload(self, sub_dir: str, filename: str, data: bytes) -> str:
-        target_dir = self.base / sub_dir
+        target_dir = self._safe_path(sub_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
-        file_path = target_dir / filename
+        # Sanitize filename
+        safe_name = Path(filename).name
+        file_path = target_dir / safe_name
         async with aiofiles.open(file_path, "wb") as f:
             await f.write(data)
-        return str(file_path.relative_to(self.base))
+        return file_path.relative_to(self.base).as_posix()
 
     def list_skills(self) -> List[str]:
         skills_dir = self.base / "skills"
         if not skills_dir.exists():
             return []
-        return [f.name for f in skills_dir.iterdir() if f.is_file()]
+        return [f.name for f in sorted(skills_dir.iterdir()) if f.is_file()]
 
-    async def build_system_prompt(self, agent) -> str:
+    async def build_system_prompt(self, agent, selected_skills: Optional[List[str]] = None) -> str:
+        """
+        Assemble system prompt from identity files.
+        selected_skills: if None, load all skills; if list, load only listed skill filenames.
+        """
         parts = []
 
+        for filename, tag in [("agent.md", "agent"), ("soul.md", "soul"), ("memory.md", "memory")]:
+            try:
+                content = await self.read_file(filename)
+                parts.append(f"<{tag}>\n{content}\n</{tag}>")
+            except (FileNotFoundError, IsADirectoryError):
+                pass
+
+        # Short-term memory (focus.md)
         try:
-            agent_content = await self.read_file("agent.md")
-            parts.append(f"<agent>\n{agent_content}\n</agent>")
-        except FileNotFoundError:
+            focus_content = await self.read_file("focus.md")
+            parts.append(f"<focus>\n{focus_content}\n</focus>")
+        except (FileNotFoundError, IsADirectoryError):
             pass
 
-        try:
-            soul_content = await self.read_file("soul.md")
-            parts.append(f"<soul>\n{soul_content}\n</soul>")
-        except FileNotFoundError:
-            pass
-
-        try:
-            memory_content = await self.read_file("memory.md")
-            parts.append(f"<memory>\n{memory_content}\n</memory>")
-        except FileNotFoundError:
-            pass
-
-        # Load skills
+        # Skills (filtered if selected_skills is provided)
         skills_dir = self.base / "skills"
         if skills_dir.exists():
             skill_contents = []
             for skill_file in sorted(skills_dir.iterdir()):
-                if skill_file.is_file():
-                    try:
-                        async with aiofiles.open(skill_file, "r", encoding="utf-8") as f:
-                            content = await f.read()
-                        skill_contents.append(f"### {skill_file.stem}\n{content}")
-                    except Exception:
-                        pass
+                if not skill_file.is_file():
+                    continue
+                if selected_skills is not None:
+                    # Match by filename or stem
+                    if skill_file.name not in selected_skills and skill_file.stem not in selected_skills:
+                        continue
+                try:
+                    async with aiofiles.open(skill_file, "r", encoding="utf-8") as f:
+                        content = await f.read()
+                    skill_contents.append(f"### {skill_file.stem}\n{content}")
+                except Exception:
+                    pass
             if skill_contents:
                 parts.append("<skills>\n" + "\n\n".join(skill_contents) + "\n</skills>")
 

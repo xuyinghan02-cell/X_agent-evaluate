@@ -159,11 +159,18 @@ async def chat_websocket(
                 await websocket.send_json({"type": "error", "content": "Empty message"})
                 return
 
+            provider_override = data.get("provider") or None
+            model_override = data.get("model") or None
+            selected_skills = data.get("selected_skills") or None  # list of skill filenames
+
             async for event in run_conversation(
                 db=db,
                 agent=agent,
                 conversation_id=conv.id,
                 user_message=user_message,
+                provider_override=provider_override,
+                model_override=model_override,
+                selected_skills=selected_skills,
             ):
                 await websocket.send_json(event)
 

@@ -102,30 +102,36 @@ async def run_conversation(
     conversation_id: int,
     user_message: str,
     tool_executor: Optional[Callable] = None,
+    provider_override: Optional[str] = None,
+    model_override: Optional[str] = None,
+    selected_skills: Optional[List[str]] = None,
 ) -> AsyncGenerator[Dict, None]:
     """
     Yields SSE events for streaming to the client.
     Handles multi-turn tool call loops.
+    provider_override/model_override: per-message overrides from the client.
+    selected_skills: list of skill filenames to include (None = all skills).
     """
     ws = WorkspaceService(agent.workspace_path)
-    system_prompt = await ws.build_system_prompt(agent)
+    system_prompt = await ws.build_system_prompt(agent, selected_skills=selected_skills)
 
-    # Read active provider/model from DB settings (overrides agent defaults)
-    provider = agent.provider
-    model = agent.primary_model
-    try:
-        from ..models.settings import SystemSettings
-        from sqlalchemy import select as sa_select
-        res = await db.execute(sa_select(SystemSettings).where(
-            SystemSettings.key.in_(["active_provider", "active_model"])
-        ))
-        db_settings = {r.key: r.value for r in res.scalars().all()}
-        if db_settings.get("active_provider"):
-            provider = db_settings["active_provider"]
-        if db_settings.get("active_model"):
-            model = db_settings["active_model"]
-    except Exception:
-        pass
+    # Per-message overrides take priority; fall back to DB settings, then agent defaults
+    provider = provider_override or agent.provider
+    model = model_override or agent.primary_model
+    if not provider_override or not model_override:
+        try:
+            from ..models.settings import SystemSettings
+            from sqlalchemy import select as sa_select
+            res = await db.execute(sa_select(SystemSettings).where(
+                SystemSettings.key.in_(["active_provider", "active_model"])
+            ))
+            db_settings = {r.key: r.value for r in res.scalars().all()}
+            if not provider_override and db_settings.get("active_provider"):
+                provider = db_settings["active_provider"]
+            if not model_override and db_settings.get("active_model"):
+                model = db_settings["active_model"]
+        except Exception:
+            pass
 
     # Save user message
     await save_message(db, conversation_id, "user", content=user_message)
