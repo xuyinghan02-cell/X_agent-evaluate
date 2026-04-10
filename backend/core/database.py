@@ -23,6 +23,6 @@ async def get_db():
 
 
 async def init_db():
-    from ..models import user, agent, conversation  # noqa: F401
+    from ..models import user, agent, conversation, settings  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

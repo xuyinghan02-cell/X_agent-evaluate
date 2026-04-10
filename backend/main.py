@@ -1,17 +1,18 @@
-import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.database import init_db
-from .core.config import settings
 from .core.auth import hash_password
-from .routers import auth, users, agents, workspace, conversations
+from .routers import auth, users, workspace, conversations
+from .routers.agents import router as agents_router, single_router as agent_router
+from .routers.settings_router import router as settings_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_admin()
+    await seed_agent()
     yield
 
 
@@ -34,6 +35,31 @@ async def seed_admin():
             await db.commit()
 
 
+async def seed_agent():
+    """Create the single evaluation agent if it doesn't exist."""
+    from sqlalchemy import select
+    from .core.database import AsyncSessionLocal
+    from .models.agent import Agent
+    from .services.workspace_service import WorkspaceService
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Agent).where(Agent.is_active == True))
+        if not result.scalar_one_or_none():
+            agent = Agent(
+                name="评估智能体",
+                description="智能体评估平台内置助手",
+                primary_model="claude-sonnet-4-6",
+                provider="anthropic",
+                history_count=20,
+                context_window=8000,
+                max_tool_rounds=50,
+            )
+            db.add(agent)
+            await db.flush()
+            agent.workspace_path = WorkspaceService.create_workspace(agent.id)
+            await db.commit()
+
+
 app = FastAPI(
     title="Agent Evaluate API",
     version="1.0.0",
@@ -50,9 +76,11 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
-app.include_router(agents.router, prefix="/api")
+app.include_router(agents_router, prefix="/api")
+app.include_router(agent_router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -2,10 +2,8 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './store/auth'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
 import ChatPage from './pages/ChatPage'
-import AgentsPage from './pages/AgentsPage'
-import AgentConfigPage from './pages/AgentConfigPage'
+import SettingsPage from './pages/SettingsPage'
 import UsersPage from './pages/UsersPage'
 import WorkspacePage from './pages/WorkspacePage'
 import Layout from './components/Layout/Layout'
@@ -31,12 +29,9 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Dashboard />} />
-          <Route path="agents" element={<AgentsPage />} />
-          <Route path="agents/new" element={<AgentConfigPage />} />
-          <Route path="agents/:agentId/config" element={<AgentConfigPage />} />
-          <Route path="agents/:agentId/chat" element={<ChatPage />} />
-          <Route path="agents/:agentId/workspace" element={<WorkspacePage />} />
+          <Route index element={<ChatPage />} />
+          <Route path="workspace" element={<WorkspacePage />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     default_model: str = "claude-sonnet-4-6"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    deepseek_api_key: str = ""
+    minimax_api_key: str = ""
 
     max_tool_call_rounds: int = 50
     default_history_count: int = 20

@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, File, Folder, Upload, Trash2, Save,
-  ChevronRight, ChevronDown, RefreshCw, Plus,
+  ChevronRight, ChevronDown, RefreshCw,
 } from 'lucide-react'
 import api from '../utils/api'
 
 export default function WorkspacePage() {
-  const { agentId } = useParams()
-  const navigate = useNavigate()
-
+  const [agentId, setAgentId] = useState(null)
   const [agent, setAgent] = useState(null)
   const [tree, setTree] = useState([])
   const [selectedPath, setSelectedPath] = useState(null)
@@ -24,8 +21,14 @@ export default function WorkspacePage() {
   const [uploadSubDir, setUploadSubDir] = useState('uploads')
 
   useEffect(() => {
-    api.get(`/agents/${agentId}`).then((r) => setAgent(r.data)).catch(() => {})
-    loadTree()
+    api.get('/agent').then((r) => {
+      setAgent(r.data)
+      setAgentId(r.data.id)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (agentId) loadTree()
   }, [agentId])
 
   const loadTree = async () => {
@@ -133,9 +136,6 @@ export default function WorkspacePage() {
       {/* File Tree Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
         <div className="h-14 border-b border-gray-200 flex items-center px-4 gap-2">
-          <button className="text-gray-400 hover:text-gray-600" onClick={() => navigate(-1)}>
-            <ArrowLeft size={18} />
-          </button>
           <span className="font-semibold text-gray-900 flex-1 truncate">
             {agent?.name || '工作空间'}
           </span>

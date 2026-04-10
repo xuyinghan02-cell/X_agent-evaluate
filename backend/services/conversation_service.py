@@ -110,6 +110,23 @@ async def run_conversation(
     ws = WorkspaceService(agent.workspace_path)
     system_prompt = await ws.build_system_prompt(agent)
 
+    # Read active provider/model from DB settings (overrides agent defaults)
+    provider = agent.provider
+    model = agent.primary_model
+    try:
+        from ..models.settings import SystemSettings
+        from sqlalchemy import select as sa_select
+        res = await db.execute(sa_select(SystemSettings).where(
+            SystemSettings.key.in_(["active_provider", "active_model"])
+        ))
+        db_settings = {r.key: r.value for r in res.scalars().all()}
+        if db_settings.get("active_provider"):
+            provider = db_settings["active_provider"]
+        if db_settings.get("active_model"):
+            model = db_settings["active_model"]
+    except Exception:
+        pass
+
     # Save user message
     await save_message(db, conversation_id, "user", content=user_message)
     await db.commit()
@@ -127,8 +144,8 @@ async def run_conversation(
         pending_tool_uses: List[Dict] = []
 
         async for event in stream_chat(
-            provider=agent.provider,
-            model=agent.primary_model,
+            provider=provider,
+            model=model,
             system_prompt=system_prompt,
             messages=history,
         ):

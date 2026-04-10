@@ -1,7 +1,42 @@
-"""LLM service: streams responses from Anthropic/OpenAI and yields SSE-style events."""
+"""LLM service: streams responses from Anthropic/OpenAI/DeepSeek/MiniMax."""
 import json
 from typing import AsyncGenerator, List, Dict, Any, Optional
 from ..core.config import settings
+
+
+async def _get_api_key(provider: str) -> str:
+    """Read API key from DB settings first, fall back to config/env."""
+    try:
+        from ..core.database import AsyncSessionLocal
+        from ..models.settings import SystemSettings
+        from sqlalchemy import select
+
+        key_map = {
+            "anthropic": "anthropic_api_key",
+            "openai": "openai_api_key",
+            "deepseek": "deepseek_api_key",
+            "minimax": "minimax_api_key",
+        }
+        db_key = key_map.get(provider)
+        if db_key:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SystemSettings).where(SystemSettings.key == db_key)
+                )
+                row = result.scalar_one_or_none()
+                if row and row.value:
+                    return row.value
+    except Exception:
+        pass
+
+    # Fallback to config
+    fallbacks = {
+        "anthropic": settings.anthropic_api_key,
+        "openai": settings.openai_api_key,
+        "deepseek": settings.deepseek_api_key,
+        "minimax": settings.minimax_api_key,
+    }
+    return fallbacks.get(provider, "")
 
 
 async def stream_chat(
@@ -17,7 +52,6 @@ async def stream_chat(
       {"type": "thinking", "content": "..."}
       {"type": "text_delta", "content": "..."}
       {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
-      {"type": "tool_result", "tool_use_id": "...", "content": "..."}
       {"type": "done", "stop_reason": "end_turn"|"tool_use"|"max_tokens"}
       {"type": "error", "content": "..."}
     """
@@ -26,6 +60,12 @@ async def stream_chat(
             yield event
     elif provider == "openai":
         async for event in _stream_openai(model, system_prompt, messages, tools):
+            yield event
+    elif provider == "deepseek":
+        async for event in _stream_deepseek(model, system_prompt, messages, tools):
+            yield event
+    elif provider == "minimax":
+        async for event in _stream_minimax(model, system_prompt, messages, tools):
             yield event
     else:
         yield {"type": "error", "content": f"Unknown provider: {provider}"}
@@ -40,7 +80,8 @@ async def _stream_anthropic(
     try:
         import anthropic
 
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        api_key = await _get_api_key("anthropic")
+        client = anthropic.AsyncAnthropic(api_key=api_key)
         kwargs: Dict[str, Any] = {
             "model": model,
             "max_tokens": 4096,
@@ -98,16 +139,23 @@ async def _stream_anthropic(
         yield {"type": "error", "content": str(e)}
 
 
-async def _stream_openai(
+async def _stream_openai_compatible(
     model: str,
     system_prompt: str,
     messages: List[Dict],
     tools: Optional[List[Dict]],
+    api_key: str,
+    base_url: Optional[str] = None,
 ) -> AsyncGenerator[Dict, None]:
+    """Shared implementation for OpenAI-compatible APIs (OpenAI, DeepSeek, MiniMax)."""
     try:
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        kwargs_client: Dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            kwargs_client["base_url"] = base_url
+
+        client = AsyncOpenAI(**kwargs_client)
         oai_messages = [{"role": "system", "content": system_prompt}] + messages
 
         kwargs: Dict[str, Any] = {
@@ -165,3 +213,44 @@ async def _stream_openai(
 
     except Exception as e:
         yield {"type": "error", "content": str(e)}
+
+
+async def _stream_openai(
+    model: str,
+    system_prompt: str,
+    messages: List[Dict],
+    tools: Optional[List[Dict]],
+) -> AsyncGenerator[Dict, None]:
+    api_key = await _get_api_key("openai")
+    async for event in _stream_openai_compatible(model, system_prompt, messages, tools, api_key):
+        yield event
+
+
+async def _stream_deepseek(
+    model: str,
+    system_prompt: str,
+    messages: List[Dict],
+    tools: Optional[List[Dict]],
+) -> AsyncGenerator[Dict, None]:
+    api_key = await _get_api_key("deepseek")
+    async for event in _stream_openai_compatible(
+        model, system_prompt, messages, tools,
+        api_key=api_key,
+        base_url="https://api.deepseek.com",
+    ):
+        yield event
+
+
+async def _stream_minimax(
+    model: str,
+    system_prompt: str,
+    messages: List[Dict],
+    tools: Optional[List[Dict]],
+) -> AsyncGenerator[Dict, None]:
+    api_key = await _get_api_key("minimax")
+    async for event in _stream_openai_compatible(
+        model, system_prompt, messages, tools,
+        api_key=api_key,
+        base_url="https://api.minimax.chat/v1",
+    ):
+        yield event

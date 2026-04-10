@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth'
-import { Bot, LayoutDashboard, Users, LogOut, ChevronRight } from 'lucide-react'
+import { Bot, MessageSquare, Folder, Settings, Users, LogOut } from 'lucide-react'
 
 export default function Layout() {
   const { user, logout } = useAuthStore()
@@ -12,8 +12,9 @@ export default function Layout() {
   }
 
   const navItems = [
-    { to: '/', icon: LayoutDashboard, label: '概览', exact: true },
-    { to: '/agents', icon: Bot, label: '智能体' },
+    { to: '/', icon: MessageSquare, label: '对话', exact: true },
+    { to: '/workspace', icon: Folder, label: '工作空间' },
+    { to: '/settings', icon: Settings, label: '设置' },
     ...(user?.role === 'admin' ? [{ to: '/users', icon: Users, label: '用户管理' }] : []),
   ]
 
@@ -46,7 +47,7 @@ export default function Layout() {
                 }`
               }
             >
-              <Icon className="w-4.5 h-4.5 flex-shrink-0" size={18} />
+              <Icon size={18} className="flex-shrink-0" />
               {label}
             </NavLink>
           ))}
