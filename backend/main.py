@@ -36,7 +36,8 @@ async def seed_admin():
 
 
 async def seed_agent():
-    """Create the single evaluation agent if it doesn't exist."""
+    """Create the single evaluation agent if it doesn't exist, and ensure its workspace is valid."""
+    from pathlib import Path
     from sqlalchemy import select
     from .core.database import AsyncSessionLocal
     from .models.agent import Agent
@@ -44,7 +45,8 @@ async def seed_agent():
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Agent).where(Agent.is_active == True))
-        if not result.scalar_one_or_none():
+        agent = result.scalar_one_or_none()
+        if not agent:
             agent = Agent(
                 name="评估智能体",
                 description="智能体评估平台内置助手",
@@ -58,6 +60,14 @@ async def seed_agent():
             await db.flush()
             agent.workspace_path = WorkspaceService.create_workspace(agent.id)
             await db.commit()
+        else:
+            # Ensure workspace exists and files are present (handles stale path or new files)
+            if not agent.workspace_path or not Path(agent.workspace_path).exists():
+                agent.workspace_path = WorkspaceService.create_workspace(agent.id)
+                await db.commit()
+            else:
+                # Workspace exists — ensure default files are present (e.g. focus.md added later)
+                WorkspaceService._write_default_files(Path(agent.workspace_path))
 
 
 app = FastAPI(

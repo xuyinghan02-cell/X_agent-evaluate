@@ -118,20 +118,26 @@ async def run_conversation(
     # Per-message overrides take priority; fall back to DB settings, then agent defaults
     provider = provider_override or agent.provider
     model = model_override or agent.primary_model
-    if not provider_override or not model_override:
-        try:
-            from ..models.settings import SystemSettings
-            from sqlalchemy import select as sa_select
-            res = await db.execute(sa_select(SystemSettings).where(
-                SystemSettings.key.in_(["active_provider", "active_model"])
-            ))
-            db_settings = {r.key: r.value for r in res.scalars().all()}
-            if not provider_override and db_settings.get("active_provider"):
-                provider = db_settings["active_provider"]
-            if not model_override and db_settings.get("active_model"):
-                model = db_settings["active_model"]
-        except Exception:
-            pass
+    try:
+        from ..models.settings import SystemSettings
+        from sqlalchemy import select as sa_select
+        keys_to_fetch = [
+            "active_provider",
+            "anthropic_model", "openai_model", "deepseek_model", "minimax_model", "volce_model",
+        ]
+        res = await db.execute(sa_select(SystemSettings).where(
+            SystemSettings.key.in_(keys_to_fetch)
+        ))
+        db_settings = {r.key: r.value for r in res.scalars().all()}
+        if not provider_override and db_settings.get("active_provider"):
+            provider = db_settings["active_provider"]
+        # Use per-provider model if not overridden by client
+        if not model_override:
+            per_provider_key = f"{provider}_model"
+            if db_settings.get(per_provider_key):
+                model = db_settings[per_provider_key]
+    except Exception:
+        pass
 
     # Save user message
     await save_message(db, conversation_id, "user", content=user_message)

@@ -84,8 +84,10 @@ class WorkspaceService:
         """Normalize path separators and resolve safely within workspace."""
         normalized = relative_path.replace("\\", "/").lstrip("/")
         resolved = (self.base / normalized).resolve()
-        # Security: ensure resolved path is inside workspace
-        if not str(resolved).startswith(str(self.base.resolve())):
+        base_resolved = self.base.resolve()
+        try:
+            resolved.relative_to(base_resolved)
+        except ValueError:
             raise ValueError(f"Path escapes workspace: {relative_path}")
         return resolved
 

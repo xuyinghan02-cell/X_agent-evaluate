@@ -10,7 +10,11 @@ from ..models.settings import SystemSettings
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 # Keys visible to all authenticated users
-PUBLIC_KEYS = {"active_provider", "active_model", "history_count", "max_tool_rounds"}
+PUBLIC_KEYS = {
+    "active_provider",
+    "anthropic_model", "openai_model", "deepseek_model", "minimax_model", "volce_model",
+    "history_count", "max_tool_rounds",
+}
 # Keys that are API keys (masked for non-admin, writable by admin only)
 API_KEY_KEYS = {"anthropic_api_key", "openai_api_key", "minimax_api_key", "deepseek_api_key", "volce_api_key"}
 
