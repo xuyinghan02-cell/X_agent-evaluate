@@ -12,7 +12,7 @@ class WorkspaceService:
     @staticmethod
     def create_workspace(agent_id: int) -> str:
         base = Path(settings.workspaces_dir) / str(agent_id)
-        dirs = [base, base / "skills", base / "uploads", base / "outputs"]
+        dirs = [base, base / "skills", base / "uploads", base / "outputs", base / "testcase"]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
         WorkspaceService._write_default_files(base)
@@ -20,6 +20,10 @@ class WorkspaceService:
 
     @staticmethod
     def _write_default_files(base: Path):
+        # Ensure all standard subdirectories exist (safe to call on existing workspaces)
+        for sub in ("skills", "uploads", "outputs", "testcase"):
+            (base / sub).mkdir(parents=True, exist_ok=True)
+
         agent_md = base / "agent.md"
         if not agent_md.exists():
             agent_md.write_text(
@@ -39,6 +43,11 @@ class WorkspaceService:
                 "- <focus>: Short-term session memory (focus.md)\n"
                 "- <skills>: Enabled skill modules for this session\n"
                 "- <runtime>: Current time, workspace path, and environment info\n\n"
+                "## Workspace Layout\n"
+                "- **skills/**: Skill module files loaded into the system prompt\n"
+                "- **uploads/**: User-uploaded files for reference or processing\n"
+                "- **outputs/**: Generated results, reports, and artifacts\n"
+                "- **testcase/**: Versioned test cases for evaluation. Organize by version subdirectory, e.g. `testcase/v1/`, `testcase/v2/`. Each test case file should include inputs, expected outputs, and evaluation criteria.\n\n"
                 "## Work Guidelines\n"
                 "- Prefer available tools over guessing\n"
                 "- When uncertain, ask for clarification before acting\n"
