@@ -34,7 +34,7 @@ export default function ChatPage() {
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [availableSkills, setAvailableSkills] = useState([])
-  const [selectedSkills, setSelectedSkills] = useState([])  // [] = all
+  const [selectedSkills, setSelectedSkills] = useState([])
   const [showSelector, setShowSelector] = useState(false)
   const selectorRef = useRef(null)
 
@@ -67,35 +67,48 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
   const loadConversations = (agentId) => {
     const id = agentId || agent?.id
     if (!id) return
     api.get(`/agents/${id}/conversations`).then((r) => setConversations(r.data)).catch(() => {})
   }
 
-  useEffect(() => {
-    if (!activeConvId || !agent) { setMessages([]); return }
-    api.get(`/agents/${agent.id}/conversations/${activeConvId}/messages`)
+  // Only load messages when user explicitly selects a conversation from sidebar.
+  // Do NOT call this during streaming — it would replace the in-flight messages.
+  const loadMessagesForConv = (convId, agentId) => {
+    const id = agentId || agent?.id
+    if (!id || !convId) return
+    api.get(`/agents/${id}/conversations/${convId}/messages`)
       .then((r) => setMessages(r.data.map((m) => ({
         id: m.id, role: m.role, content: m.content,
         toolCalls: m.tool_calls, thinking: m.thinking, status: 'done',
       }))))
       .catch(() => {})
-  }, [activeConvId, agent])
+  }
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  // Explicit conversation selection from sidebar
+  const selectConversation = (convId) => {
+    if (sending) return  // never switch while streaming
+    setActiveConvId(convId)
+    loadMessagesForConv(convId)
+  }
 
-  const newConversation = () => { setActiveConvId(null); setMessages([]) }
+  const newConversation = () => {
+    if (sending) return
+    setActiveConvId(null)
+    setMessages([])
+  }
 
   const deleteConversation = async (id) => {
     await api.delete(`/agents/${agent.id}/conversations/${id}`)
-    if (activeConvId === id) newConversation()
+    if (activeConvId === id) { setActiveConvId(null); setMessages([]) }
     loadConversations()
   }
 
   const handleProviderChange = (p) => {
     setSelectedProvider(p)
-    // Try to load this provider's saved model from settings
     api.get('/settings').then((r) => {
       setSelectedModel(r.data[`${p}_model`] || (PROVIDERS[p]?.models[0] ?? ''))
     }).catch(() => {
@@ -105,7 +118,6 @@ export default function ChatPage() {
 
   const toggleSkill = (skill) => {
     if (selectedSkills.length === 0) {
-      // All active → deselect this one
       setSelectedSkills(availableSkills.filter((s) => s !== skill))
     } else if (selectedSkills.includes(skill)) {
       const next = selectedSkills.filter((s) => s !== skill)
@@ -124,11 +136,10 @@ export default function ChatPage() {
     setSending(true)
     setShowSelector(false)
 
+    // Optimistically add user message and empty assistant bubble
     const userMsg = { id: Date.now(), role: 'user', content: text, status: 'done' }
-    setMessages((prev) => [...prev, userMsg])
-
     const assistantId = Date.now() + 1
-    setMessages((prev) => [...prev, {
+    setMessages((prev) => [...prev, userMsg, {
       id: assistantId, role: 'assistant', content: '', toolCalls: [], thinking: '', status: 'streaming',
     }])
 
@@ -151,7 +162,14 @@ export default function ChatPage() {
 
     ws.onmessage = (e) => {
       const event = JSON.parse(e.data)
-      if (event.type === 'conversation_id') { setActiveConvId(event.id); loadConversations(); return }
+
+      if (event.type === 'conversation_id') {
+        // Store the conversation ID for follow-up messages, but do NOT reload
+        // messages from API here — that would wipe the in-flight streaming bubble.
+        setActiveConvId(event.id)
+        loadConversations()
+        return
+      }
 
       setMessages((prev) => {
         const msgs = [...prev]
@@ -175,10 +193,12 @@ export default function ChatPage() {
             msg.toolCalls = Object.values(toolCallMap)
           }
         } else if (event.type === 'done') {
-          msg.status = 'done'; setSending(false)
+          msg.status = 'done'
+          setSending(false)
         } else if (event.type === 'error') {
           msg.content = (msg.content || '') + `\n\n**错误:** ${event.content}`
-          msg.status = 'done'; setSending(false)
+          msg.status = 'done'
+          setSending(false)
         }
 
         msgs[idx] = msg
@@ -215,7 +235,7 @@ export default function ChatPage() {
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
                 activeConvId === c.id ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-100'
               }`}
-              onClick={() => setActiveConvId(c.id)}
+              onClick={() => selectConversation(c.id)}
             >
               <span className="flex-1 truncate">{c.title || `对话 #${c.id}`}</span>
               <button
@@ -267,7 +287,7 @@ export default function ChatPage() {
                 disabled={sending}
               />
               {/* Model / Skills selector row */}
-              <div className="flex items-center gap-2" ref={selectorRef}>
+              <div className="flex items-center gap-2 relative" ref={selectorRef}>
                 <button
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-colors ${
                     showSelector
@@ -294,7 +314,7 @@ export default function ChatPage() {
 
                 {/* Popover */}
                 {showSelector && (
-                  <div className="absolute bottom-[110px] left-[16rem] z-50 w-80 bg-white rounded-xl shadow-lg border border-gray-200 p-4 space-y-4">
+                  <div className="absolute bottom-9 left-0 z-50 w-80 bg-white rounded-xl shadow-lg border border-gray-200 p-4 space-y-4">
                     {/* Provider */}
                     <div>
                       <div className="text-xs font-medium text-gray-500 mb-2">提供商</div>
