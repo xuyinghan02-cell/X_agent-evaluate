@@ -202,8 +202,11 @@ class WorkspaceService:
         runtime = (
             f"<runtime>\n"
             f"Current time: {datetime.now().isoformat()}\n"
-            f"Workspace: {self.base}\n"
             f"Agent: {agent.name}\n"
+            f"Workspace directories: outputs/, testcase/, skills/, uploads/\n"
+            f"IMPORTANT: When calling file tools (read_file, write_file, list_files), "
+            f"always use relative paths such as 'outputs/result.md' or 'testcase/v1/case1.json'. "
+            f"Do NOT use absolute paths.\n"
             f"</runtime>"
         )
         parts.append(runtime)

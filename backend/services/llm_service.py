@@ -171,7 +171,19 @@ async def _stream_openai_compatible(
             "stream": True,
         }
         if tools:
-            kwargs["tools"] = [{"type": "function", "function": t} for t in tools]
+            # Convert from Anthropic format (input_schema) to OpenAI format (parameters)
+            oai_tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": t.get("input_schema", t.get("parameters", {})),
+                    },
+                }
+                for t in tools
+            ]
+            kwargs["tools"] = oai_tools
             kwargs["tool_choice"] = "auto"
 
         stream = await client.chat.completions.create(**kwargs)

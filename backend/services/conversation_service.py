@@ -9,6 +9,74 @@ from .llm_service import stream_chat
 from .workspace_service import WorkspaceService
 
 
+# ── Workspace tools exposed to the LLM ────────────────────────────────────────
+# Defined in Anthropic format (input_schema); llm_service converts for other providers.
+
+WORKSPACE_TOOLS = [
+    {
+        "name": "read_file",
+        "description": "Read the text content of a file in the agent workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path within workspace, e.g. 'outputs/report.md' or 'testcase/v1/test1.json'",
+                }
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": "Write text content to a file in the agent workspace. Creates parent directories as needed. Use this to save reports, test cases, evaluation results, etc.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Relative path within workspace, e.g. 'outputs/result.md' or 'testcase/v2/case1.json'",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text content to write to the file.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "list_files",
+        "description": "List files and directories in a workspace subdirectory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sub_dir": {
+                    "type": "string",
+                    "description": "Subdirectory to list, e.g. 'outputs' or 'testcase/v1'. Leave empty for workspace root.",
+                }
+            },
+        },
+    },
+]
+
+
+def _make_tool_executor(ws: WorkspaceService):
+    """Return an async callable that executes workspace tool calls."""
+    async def tool_executor(name: str, inp: dict) -> str:
+        if name == "read_file":
+            return await ws.read_file(inp["path"])
+        elif name == "write_file":
+            await ws.write_file(inp["path"], inp["content"])
+            return f"OK: written to {inp['path']}"
+        elif name == "list_files":
+            files = ws.list_files(inp.get("sub_dir", ""))
+            return json.dumps(files, ensure_ascii=False)
+        else:
+            raise ValueError(f"Unknown tool: {name}")
+    return tool_executor
+
+
 async def get_or_create_conversation(
     db: AsyncSession,
     agent_id: int,
@@ -101,19 +169,19 @@ async def run_conversation(
     agent: Agent,
     conversation_id: int,
     user_message: str,
-    tool_executor: Optional[Callable] = None,
     provider_override: Optional[str] = None,
     model_override: Optional[str] = None,
     selected_skills: Optional[List[str]] = None,
 ) -> AsyncGenerator[Dict, None]:
     """
     Yields SSE events for streaming to the client.
-    Handles multi-turn tool call loops.
+    Handles multi-turn tool call loops with workspace file tools.
     provider_override/model_override: per-message overrides from the client.
     selected_skills: list of skill filenames to include (None = all skills).
     """
     ws = WorkspaceService(agent.workspace_path)
     system_prompt = await ws.build_system_prompt(agent, selected_skills=selected_skills)
+    tool_executor = _make_tool_executor(ws)
 
     # Per-message overrides take priority; fall back to DB settings, then agent defaults
     provider = provider_override or agent.provider
@@ -160,6 +228,7 @@ async def run_conversation(
             model=model,
             system_prompt=system_prompt,
             messages=history,
+            tools=WORKSPACE_TOOLS,
         ):
             yield event  # Forward to client
 
