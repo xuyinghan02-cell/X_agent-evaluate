@@ -10,7 +10,7 @@ class WorkspaceService:
         self.base = Path(workspace_path).resolve()
 
     @staticmethod
-    def create_workspace(agent_id: int) -> str:
+    def create_workspace() -> str:
         base = Path(settings.workspaces_dir).resolve()
         dirs = [base, base / "skills", base / "uploads", base / "outputs", base / "testcase"]
         for d in dirs:

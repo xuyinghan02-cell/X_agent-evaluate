@@ -87,7 +87,7 @@ async def create_agent(
     db.add(agent)
     await db.flush()
 
-    workspace_path = WorkspaceService.create_workspace(agent.id)
+    workspace_path = WorkspaceService.create_workspace()
     agent.workspace_path = workspace_path
     await db.flush()
     return agent

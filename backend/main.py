@@ -58,7 +58,7 @@ async def seed_agent():
             )
             db.add(agent)
             await db.flush()
-            agent.workspace_path = WorkspaceService.create_workspace(agent.id)
+            agent.workspace_path = WorkspaceService.create_workspace()
             await db.commit()
         else:
             from .core.config import settings
