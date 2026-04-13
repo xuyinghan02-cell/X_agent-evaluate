@@ -183,6 +183,7 @@ export default function WorkspacePage() {
             <option value="uploads">uploads/</option>
             <option value="skills">skills/</option>
             <option value="outputs">outputs/</option>
+            <option value="testcase">testcase/</option>
           </select>
           <button
             className="btn-secondary w-full text-xs py-1.5 justify-center"
@@ -333,15 +334,26 @@ function DirRow({ dir, agentId, selectedPath, onOpen, onDelete }) {
           {children.length === 0 ? (
             <div className="text-xs text-gray-400 px-2 py-1">空目录</div>
           ) : (
-            children.map((child) => (
-              <FileRow
-                key={child.path}
-                item={child}
-                selected={selectedPath === child.path}
-                onOpen={onOpen}
-                onDelete={onDelete}
-              />
-            ))
+            children.map((child) =>
+              child.is_dir ? (
+                <DirRow
+                  key={child.path}
+                  dir={child}
+                  agentId={agentId}
+                  selectedPath={selectedPath}
+                  onOpen={onOpen}
+                  onDelete={onDelete}
+                />
+              ) : (
+                <FileRow
+                  key={child.path}
+                  item={child}
+                  selected={selectedPath === child.path}
+                  onOpen={onOpen}
+                  onDelete={onDelete}
+                />
+              )
+            )
           )}
         </div>
       )}
