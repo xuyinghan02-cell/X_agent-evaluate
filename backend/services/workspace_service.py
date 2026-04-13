@@ -199,16 +199,42 @@ class WorkspaceService:
                 parts.append("<skills>\n" + "\n\n".join(skill_contents) + "\n</skills>")
 
         from datetime import datetime
+
+        # Workspace file index — list non-empty subdirectories so the agent
+        # knows what uploaded/generated files are available to read.
+        workspace_lines = []
+        for sub in ("uploads", "testcase", "outputs"):
+            sub_path = self.base / sub
+            if not sub_path.exists():
+                continue
+            files = [f for f in sorted(sub_path.iterdir()) if f.is_file()]
+            if files:
+                workspace_lines.append(f"  {sub}/")
+                for f in files:
+                    size_kb = f.stat().st_size / 1024
+                    workspace_lines.append(f"    {f.name}  ({size_kb:.1f} KB)")
+
+        workspace_section = ""
+        if workspace_lines:
+            workspace_section = (
+                "<workspace_files>\n"
+                "Files currently available in workspace (use read_file to access them):\n"
+                + "\n".join(workspace_lines)
+                + "\n</workspace_files>"
+            )
+
         runtime = (
             f"<runtime>\n"
             f"Current time: {datetime.now().isoformat()}\n"
             f"Agent: {agent.name}\n"
             f"Workspace directories: outputs/, testcase/, skills/, uploads/\n"
             f"IMPORTANT: When calling file tools (read_file, write_file, list_files), "
-            f"always use relative paths such as 'outputs/result.md' or 'testcase/v1/case1.json'. "
+            f"always use relative paths such as 'outputs/result.md' or 'uploads/data.json'. "
             f"Do NOT use absolute paths.\n"
             f"</runtime>"
         )
+        if workspace_section:
+            parts.append(workspace_section)
         parts.append(runtime)
 
         return "\n\n".join(parts)
