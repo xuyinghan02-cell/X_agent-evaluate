@@ -19,6 +19,7 @@ export default function WorkspacePage() {
   const [successMsg, setSuccessMsg] = useState('')
   const uploadRef = useRef()
   const [uploadSubDir, setUploadSubDir] = useState('uploads')
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     api.get('/agent').then((r) => {
@@ -35,6 +36,7 @@ export default function WorkspacePage() {
     try {
       const res = await api.get(`/agents/${agentId}/workspace/files`)
       setTree(res.data)
+      setRefreshTick((t) => t + 1)  // notify DirRows to re-fetch their contents
     } catch {
       setError('加载工作空间失败')
     }
@@ -168,6 +170,7 @@ export default function WorkspacePage() {
               selectedPath={selectedPath}
               onOpen={openFile}
               onDelete={deleteFile}
+              refreshTick={refreshTick}
             />
           ))}
         </div>
@@ -292,32 +295,20 @@ function FileRow({ item, selected, onOpen, onDelete }) {
   )
 }
 
-function DirRow({ dir, agentId, selectedPath, onOpen, onDelete }) {
-  const [open, setOpen] = useState(dir.name !== 'outputs')
+function DirRow({ dir, agentId, selectedPath, onOpen, onDelete, refreshTick }) {
+  const [open, setOpen] = useState(true)
   const [children, setChildren] = useState([])
-  const [loaded, setLoaded] = useState(false)
 
-  const toggle = async () => {
-    if (!loaded) {
-      try {
-        const res = await api.get(`/agents/${agentId}/workspace/files`, {
-          params: { sub_dir: dir.path },
-        })
-        setChildren(res.data)
-        setLoaded(true)
-      } catch {}
-    }
-    setOpen((o) => !o)
-  }
+  const toggle = () => setOpen((o) => !o)
 
-  // Reload when dir changes
+  // Re-fetch whenever opened or parent triggers a refresh
   useEffect(() => {
     if (open) {
       api.get(`/agents/${agentId}/workspace/files`, { params: { sub_dir: dir.path } })
-        .then((r) => { setChildren(r.data); setLoaded(true) })
+        .then((r) => setChildren(r.data))
         .catch(() => {})
     }
-  }, [open, dir.path])
+  }, [open, dir.path, refreshTick])
 
   return (
     <div>
@@ -343,6 +334,7 @@ function DirRow({ dir, agentId, selectedPath, onOpen, onDelete }) {
                   selectedPath={selectedPath}
                   onOpen={onOpen}
                   onDelete={onDelete}
+                  refreshTick={refreshTick}
                 />
               ) : (
                 <FileRow
