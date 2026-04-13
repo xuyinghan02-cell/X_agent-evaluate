@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
     database_url: str = "sqlite+aiosqlite:///./agent_evaluate.db"
-    workspaces_dir: str = str(Path(__file__).parent.parent / "workspaces")
+    workspaces_dir: str = str(Path(__file__).parent.parent.resolve() / "workspaces")
 
     # Default LLM settings
     default_model: str = "claude-sonnet-4-6"

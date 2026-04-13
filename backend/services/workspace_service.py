@@ -7,11 +7,11 @@ from ..core.config import settings
 
 class WorkspaceService:
     def __init__(self, workspace_path: str):
-        self.base = Path(workspace_path)
+        self.base = Path(workspace_path).resolve()
 
     @staticmethod
     def create_workspace(agent_id: int) -> str:
-        base = Path(settings.workspaces_dir)
+        base = Path(settings.workspaces_dir).resolve()
         dirs = [base, base / "skills", base / "uploads", base / "outputs", base / "testcase"]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
