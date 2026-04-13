@@ -11,7 +11,7 @@ class WorkspaceService:
 
     @staticmethod
     def create_workspace(agent_id: int) -> str:
-        base = Path(settings.workspaces_dir) / str(agent_id)
+        base = Path(settings.workspaces_dir)
         dirs = [base, base / "skills", base / "uploads", base / "outputs", base / "testcase"]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)

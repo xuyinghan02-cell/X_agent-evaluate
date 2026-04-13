@@ -61,12 +61,40 @@ async def seed_agent():
             agent.workspace_path = WorkspaceService.create_workspace(agent.id)
             await db.commit()
         else:
-            # Ensure workspace exists and files are present (handles stale path or new files)
+            from .core.config import settings
+            import shutil
+            canonical = Path(settings.workspaces_dir)
+
+            # Migrate old layout: workspaces/{id}/ → workspaces/
+            if agent.workspace_path and Path(agent.workspace_path) != canonical:
+                old = Path(agent.workspace_path)
+                if old.exists() and old.is_dir():
+                    canonical.mkdir(parents=True, exist_ok=True)
+                    for item in old.iterdir():
+                        dest = canonical / item.name
+                        if dest.exists():
+                            if dest.is_dir():
+                                # Merge: move contents into existing dir
+                                for sub in item.iterdir():
+                                    sub_dest = dest / sub.name
+                                    if not sub_dest.exists():
+                                        shutil.move(str(sub), str(dest))
+                            # else: keep existing file (don't overwrite)
+                        else:
+                            shutil.move(str(item), str(canonical))
+                    # Remove now-empty old dir
+                    try:
+                        old.rmdir()
+                    except OSError:
+                        pass
+                agent.workspace_path = str(canonical)
+                await db.commit()
+
+            # Ensure workspace exists and default files are present
             if not agent.workspace_path or not Path(agent.workspace_path).exists():
                 agent.workspace_path = WorkspaceService.create_workspace(agent.id)
                 await db.commit()
             else:
-                # Workspace exists — ensure default files are present (e.g. focus.md added later)
                 WorkspaceService._write_default_files(Path(agent.workspace_path))
 
 
